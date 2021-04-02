@@ -21,10 +21,22 @@ class RegularMLP(nn.Module):
 
 @variational_estimator
 class BayesianMLP(nn.Module):
-    def __init__(self, dim_in, dim_out, dim_h):
+    def __init__(self, dim_in, dim_out, dim_h, prior_sigma_1, prior_sigma_2, prior_pi):
         super().__init__()
-        self.blinear1 = BayesianLinear(dim_in, dim_h, prior_sigma_1=1.)
-        self.blinear2 = BayesianLinear(dim_h, dim_out, prior_sigma_1=1.)
+        self.blinear1 = BayesianLinear(
+            dim_in,
+            dim_h,
+            prior_sigma_1=prior_sigma_1,
+            prior_sigma_2=prior_sigma_2,
+            prior_pi=prior_pi,
+        )
+        self.blinear2 = BayesianLinear(
+            dim_h,
+            dim_out,
+            prior_sigma_1=prior_sigma_1,
+            prior_sigma_2=prior_sigma_2,
+            prior_pi=prior_pi,
+        )
 
     def forward(self, x, num_samples=1):
         if num_samples == 1:
