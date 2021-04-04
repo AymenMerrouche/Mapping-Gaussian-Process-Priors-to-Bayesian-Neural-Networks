@@ -10,36 +10,29 @@ import torch.nn.functional as F
 class BayesianLinear(nn.Module):
     def __init__(
         self,
-        dim_in,
-        dim_out,
-        prior_sigma_1=0.1,
-        prior_sigma_2=0.4,
-        prior_pi=1,
-        posterior_mu_init=0,
-        posterior_rho_init=-7.0,
+        dim_in: int,
+        dim_out: int,
+        prior_sigma: float,
     ):
         super().__init__()
         # Parameters theta=[mu,rho] of variational posterior q(w|theta): for weights...
-        # todo: init mu/rho to match prior instead??
         # Variational weight parameters and sample
-        self.mu = nn.Parameter(
-            torch.Tensor(dim_out, dim_in).normal_(posterior_mu_init, 0.1)
-        )
+        self.mu = nn.Parameter(torch.zeros(dim_out, dim_in))
         self.rho = nn.Parameter(
-            torch.Tensor(dim_out, dim_in).normal_(posterior_rho_init, 0.1)
+            torch.log(torch.exp(torch.ones(dim_out, dim_in) * prior_sigma) - 1)
         )
         # ... and biases
-        self.mu_bias = nn.Parameter(
-            torch.Tensor(dim_out).normal_(posterior_mu_init, 0.1)
-        )
+        self.mu_bias = nn.Parameter(torch.zeros(dim_out))
         self.rho_bias = nn.Parameter(
-            torch.Tensor(dim_out).normal_(posterior_rho_init, 0.1)
+            torch.log(torch.exp(torch.ones(dim_out) * prior_sigma) - 1)
         )
 
-        # Priors (as BBP paper): gaussian mixture model of two 1D normal distributions
-        mix = Categorical(torch.Tensor([prior_pi, 1 - prior_pi]))
-        comp = Normal(torch.zeros(2), torch.Tensor([prior_sigma_1, prior_sigma_2]))
-        self.prior = MixtureSameFamily(mix, comp)
+        # Prior
+        self.prior = Normal(0, prior_sigma)
+        # Gaussian mixture prior (like Bayes By Backprop paper)
+        # mix = Categorical(torch.Tensor([prior_pi, 1 - prior_pi]))
+        # comp = Normal(torch.zeros(2), torch.Tensor([prior_sigma_1, prior_sigma_2]))
+        # self.prior = MixtureSameFamily(mix, comp)
 
         self.log_variational_posterior = 0.0
         self.log_prior = 0.0
@@ -66,12 +59,14 @@ class VariationalEstimator(nn.Module):
     def sample_elbo(
         self, inputs, labels, criterion, sample_nbr: int, complexity_cost_weight: float
     ):
-        loss = 0
+        kl_div = 0
+        log_likelihood = 0
         for _ in range(sample_nbr):
             outputs = self(inputs)
-            loss += criterion(outputs, labels)
-            loss += self.kl_div() * complexity_cost_weight
-        return loss / sample_nbr
+            log_likelihood -= criterion(outputs, labels) / sample_nbr
+            kl_div += self.kl_div() * complexity_cost_weight / sample_nbr
+        loss = kl_div - log_likelihood
+        return loss, kl_div, log_likelihood
 
     def kl_div(self):
         r"""
@@ -98,23 +93,31 @@ class RBF(nn.Module):
 
 
 class BayesianMLP(VariationalEstimator):
-    def __init__(self, dim_in, dim_out, dim_h, prior_sigma_1, prior_sigma_2, prior_pi):
+    def __init__(self, dim_in, dim_out, dim_h, prior_sigma):
         super().__init__()
         self.model = nn.Sequential(
             BayesianLinear(
                 dim_in,
                 dim_h,
-                prior_sigma_1=prior_sigma_1,
-                prior_sigma_2=prior_sigma_2,
-                prior_pi=prior_pi,
+                prior_sigma=prior_sigma,
             ),
-            nn.ReLU(),
+            RBF(),
+            BayesianLinear(
+                dim_h,
+                dim_h,
+                prior_sigma=prior_sigma,
+            ),
+            RBF(),
+            BayesianLinear(
+                dim_h,
+                dim_h,
+                prior_sigma=prior_sigma,
+            ),
+            RBF(),
             BayesianLinear(
                 dim_h,
                 dim_out,
-                prior_sigma_1=prior_sigma_1,
-                prior_sigma_2=prior_sigma_2,
-                prior_pi=prior_pi,
+                prior_sigma=prior_sigma,
             ),
         )
 
