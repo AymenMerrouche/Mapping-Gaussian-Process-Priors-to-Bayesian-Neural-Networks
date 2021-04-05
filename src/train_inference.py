@@ -1,5 +1,4 @@
 from datetime import datetime
-from datetime import datetime
 from pathlib import Path
 from typing import List
 
@@ -23,23 +22,38 @@ def train(
     evaluate_func,
     evaluate_data,
 ):
+    """
+
+    Args:
+        model:
+        optimizer:
+        dataloader_train:
+        n_epochs:
+        log_dir:
+        evaluate_func: function taking in input `evaluate_data`, and returning the validation metric
+            (mse, acc, etc). Also log useful metrics and figures to tensorboard
+        evaluate_data:
+
+    Returns:
+
+    """
     writer = SummaryWriter(str(log_dir))
     global_step = 0
     for epoch in range(n_epochs):
         loss_history = []
         kl_div_history = []
         log_p_history = []
-        M = len(dataloader_train)
-        # M = len(x_train)
+        # M = len(dataloader_train)
+        M = len(dataloader_train) * dataloader_train.batch_size
         for i, (x, y) in enumerate(dataloader_train):
             optimizer.zero_grad()
             loss, kl_div, log_p = model.sample_elbo(
                 inputs=x,
                 labels=y,
-                criterion=torch.nn.MSELoss(),
-                sample_nbr=3,
+                n_samples=20,
                 complexity_cost_weight=1 / M,
                 # complexity_cost_weight=(2 ** M - i) / (2 ** M - 1),
+                model_noise_var=1.0,
             )
             loss.backward()
             optimizer.step()
@@ -50,7 +64,6 @@ def train(
             log_p_history.append(log_p.item())
 
         with torch.no_grad():
-            # todo: use weight means instead of samples?
             val_metric = evaluate_func(
                 model,
                 evaluate_data,
@@ -85,7 +98,7 @@ def eval_1d_regression(
     mse_val = F.mse_loss(y_pred_val, y_val).mean().item()
     writer.add_scalar("mse_val", mse_val, epoch)
 
-    if epoch % 30 == 0:
+    if epoch % 10 == 0:
         n_samples = 50
         # plot results with all ground truth
         y_all_pred = (
@@ -108,16 +121,19 @@ def eval_1d_regression(
 def train_1d_regression():
     dim_h = 20
     prior_sigma = 1.0
+    activation = "rbf"
 
     log_dir = (
         project_dir
-        / f"runs/individual/{datetime.now().strftime('%Y%m%d_%H%M%S')}-dim_h_{dim_h}"
-        f"-sigma_{prior_sigma:.2f}"
+        / f"runs/individual/{datetime.now().strftime('%Y%m%d_%H%M%S')}-act_{activation}"
+        f"-dim_h_{dim_h}-sigma_{prior_sigma:.2f}"
     )
 
-    x_train, y_train, x_val, y_val, x_all, y_all = get_toy_data()
+    x_train, y_train, x_val, y_val, x_all, y_all = get_toy_data(
+        num_samples=70, sigma=0.1
+    )
     dataloader_train = DataLoader(
-        TensorDataset(x_train, y_train), batch_size=16, shuffle=True
+        TensorDataset(x_train, y_train), batch_size=70, shuffle=True
     )
 
     model = BayesianMLP(
@@ -125,18 +141,21 @@ def train_1d_regression():
         dim_out=1,
         dim_h=dim_h,
         prior_sigma=prior_sigma,
+        activation=activation,
     )
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.1)
     return train(
         model,
         optimizer,
         dataloader_train,
-        n_epochs=1000,
+        n_epochs=50,
         log_dir=log_dir,
         evaluate_func=eval_1d_regression,
         evaluate_data=(x_train, y_train, x_val, y_val, x_all, y_all),
     )
 
+
+# --- classification: todo
 
 if __name__ == "__main__":
     project_dir = Path(__file__).resolve().parents[1]

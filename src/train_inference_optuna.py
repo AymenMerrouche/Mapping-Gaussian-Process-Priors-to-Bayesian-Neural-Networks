@@ -12,7 +12,7 @@ from torch.utils.data import TensorDataset, DataLoader
 
 from datasets import get_toy_data
 from models import BayesianMLP
-from train import train, eval_1d_regression
+from train_inference import train, eval_1d_regression
 
 
 def objective(trial: optuna.Trial):

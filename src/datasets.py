@@ -2,7 +2,7 @@ import torch
 import numpy as np
 
 
-def get_toy_data(num_samples=100, sigma=0.05):
+def get_toy_data(num_samples, sigma):
     """
     Create a noisy dataset of samples f(x) = sin(2 pi x) + x
     With

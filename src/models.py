@@ -1,10 +1,14 @@
 import torch
 
 # from blitz.modules import BayesianLinear
-from blitz.modules import PriorWeightDistribution, TrainableRandomDistribution
 from torch import nn
 from torch.distributions import Normal, Categorical, MixtureSameFamily
 import torch.nn.functional as F
+
+
+class RBF(nn.Module):
+    def forward(self, x):
+        return torch.exp(-(x ** 2))
 
 
 class BayesianLinear(nn.Module):
@@ -14,6 +18,14 @@ class BayesianLinear(nn.Module):
         dim_out: int,
         prior_sigma: float,
     ):
+        """
+        Assume a gaussian prior w_i ~ Normal(0, prior_sigma), with w_i iid
+
+        Args:
+            dim_in:
+            dim_out:
+            prior_sigma: std
+        """
         super().__init__()
         # Parameters theta=[mu,rho] of variational posterior q(w|theta): for weights...
         # Variational weight parameters and sample
@@ -51,20 +63,50 @@ class BayesianLinear(nn.Module):
         self.log_variational_posterior = (variational_posterior.log_prob(w)).sum() + (
             variational_posterior_bias.log_prob(b)
         ).sum()
-        self.log_prior = (self.prior.log_prob(w) + self.prior.log_prob(b)).sum()
+        self.log_prior = self.prior.log_prob(w).sum() + self.prior.log_prob(b).sum()
         return F.linear(x, w, b)
 
 
 class VariationalEstimator(nn.Module):
     def sample_elbo(
-        self, inputs, labels, criterion, sample_nbr: int, complexity_cost_weight: float
+        self,
+        inputs,
+        labels,
+        n_samples: int,
+        complexity_cost_weight: float,
+        model_noise_var: float,
     ):
+        r"""
+        Assuming:
+            - prior on the weights P(w)
+            - variational posterior q(w|theta)
+            - model P(y|x,w)
+        compute an estimate of the ELBO loss by sampling `n_samples` weights w from q(w|theta):
+
+        .. math::
+            elbo loss = \sum_{i=1}^n_samples \log q(w_i|\theta) - \log P(w_i) - \log P(y|x,w_i)
+
+        Args:
+            inputs: (batch_size, dim_x)
+            labels: (batch_size, dim_y)
+            n_samples: number of BNN weight samples to draw for the ELBO estimate
+            complexity_cost_weight: term in front of the KL
+            model_noise_var: sigma_y**2, assuming that P(y|x,w) = Normal(f_w(x), sigma_y)
+
+        Returns:
+            estimate of the elbo loss (to minimize)
+        """
         kl_div = 0
         log_likelihood = 0
-        for _ in range(sample_nbr):
+        for _ in range(n_samples):
             outputs = self(inputs)
-            log_likelihood -= criterion(outputs, labels) / sample_nbr
-            kl_div += self.kl_div() * complexity_cost_weight / sample_nbr
+            kl_div += self.kl_div() * complexity_cost_weight
+            # log P(y|x,w), assuming a gaussian distribution (regression tasks)
+            # todo: for classification tasks, use cross entropy
+            log_likelihood -= ((outputs - labels) ** 2 / model_noise_var).sum()
+
+        kl_div /= n_samples
+        log_likelihood /= n_samples
         loss = kl_div - log_likelihood
         return loss, kl_div, log_likelihood
 
@@ -74,8 +116,8 @@ class VariationalEstimator(nn.Module):
             KL[q(w|mu,rho) || P(w)] = KL[variational posterior || prior]
 
         .. math::
-            \sum_i \log q(w|\mu,\rho) - \log P(w)
-        where w is sampled from q
+            \sum_i \log q(w_i|\mu,\rho) - \log P(w_i)
+        where w_i are sampled from q
 
         Returns:
 
@@ -87,37 +129,49 @@ class VariationalEstimator(nn.Module):
         return kl_divergence
 
 
-class RBF(nn.Module):
-    def forward(self, x):
-        return torch.exp(-(x ** 2))
-
-
 class BayesianMLP(VariationalEstimator):
-    def __init__(self, dim_in, dim_out, dim_h, prior_sigma):
+    def __init__(self, dim_in, dim_out, dim_h, prior_sigma, activation):
         super().__init__()
+        if activation == "rbf":
+            activation_fct = RBF()
+        elif activation == "relu":
+            activation_fct = nn.ReLU()
+        else:
+            raise ValueError
+
+        # parameters to use with Blitz layers
+        # prior_sigma1 = 1.0
+        # prior_sigma2 = 1.0
+        # prior_pi = 0.5
         self.model = nn.Sequential(
             BayesianLinear(
                 dim_in,
                 dim_h,
                 prior_sigma=prior_sigma,
+                # prior_sigma_1=prior_sigma1,
+                # prior_sigma_2=prior_sigma2,
+                # prior_pi=prior_pi,
+                # posterior_rho_init=-1,
             ),
-            RBF(),
+            activation_fct,
             BayesianLinear(
                 dim_h,
                 dim_h,
                 prior_sigma=prior_sigma,
+                # prior_sigma_1=prior_sigma1,
+                # prior_sigma_2=prior_sigma2,
+                # prior_pi=prior_pi,
+                # posterior_rho_init=-1,
             ),
-            RBF(),
-            BayesianLinear(
-                dim_h,
-                dim_h,
-                prior_sigma=prior_sigma,
-            ),
-            RBF(),
+            activation_fct,
             BayesianLinear(
                 dim_h,
                 dim_out,
                 prior_sigma=prior_sigma,
+                # prior_sigma_1=prior_sigma1,
+                # prior_sigma_2=prior_sigma2,
+                # prior_pi=prior_pi,
+                # posterior_rho_init=-1,
             ),
         )
 
