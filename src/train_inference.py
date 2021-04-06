@@ -11,6 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from datasets import get_toy_data
 from figures import plot_deciles
 from models import BayesianMLP, VariationalEstimator
+from utils import EarlyStopping
 
 
 def train(
@@ -21,6 +22,8 @@ def train(
     log_dir: str,
     evaluate_func,
     evaluate_data,
+    M: int,
+    model_noise_var: float,
 ):
     """
 
@@ -33,18 +36,21 @@ def train(
         evaluate_func: function taking in input `evaluate_data`, and returning the validation metric
             (mse, acc, etc). Also log useful metrics and figures to tensorboard
         evaluate_data:
+        M: inverse of the cost in front of the KL div (in theory, number of batches)
+        model_noise_var: acts as a L2 penalty in the log likelihood term (in the case of regression & MSE)
 
     Returns:
 
     """
     writer = SummaryWriter(str(log_dir))
     global_step = 0
+    early_stopping = EarlyStopping(patience=30)
     for epoch in range(n_epochs):
         loss_history = []
         kl_div_history = []
         log_p_history = []
         # M = len(dataloader_train)
-        M = len(dataloader_train) * dataloader_train.batch_size
+        # M = len(dataloader_train) * dataloader_train.batch_size
         for i, (x, y) in enumerate(dataloader_train):
             optimizer.zero_grad()
             loss, kl_div, log_p = model.sample_elbo(
@@ -53,7 +59,7 @@ def train(
                 n_samples=20,
                 complexity_cost_weight=1 / M,
                 # complexity_cost_weight=(2 ** M - i) / (2 ** M - 1),
-                model_noise_var=1.0,
+                model_noise_var=model_noise_var,
             )
             loss.backward()
             optimizer.step()
@@ -73,6 +79,9 @@ def train(
                 log_p_history,
                 epoch,
             )
+        early_stopping(val_metric, model)
+        if early_stopping.early_stop:
+            break
     return val_metric
 
 
@@ -90,7 +99,7 @@ def eval_1d_regression(
     writer.add_scalar("kl_div", np.mean(kl_div_history), epoch)
     writer.add_scalar("log_p", np.mean(log_p_history), epoch)
 
-    x_train, y_train, x_val, y_val, x_all, y_all = data
+    x_train, y_train, x_val, y_val, x_all, y_all, log_fig_freq = data
     y_pred_train, _ = model(x_train, num_samples=30)
     mse_train = F.mse_loss(y_pred_train, y_train).mean().item()
     writer.add_scalar("mse_train", mse_train, epoch)
@@ -98,7 +107,7 @@ def eval_1d_regression(
     mse_val = F.mse_loss(y_pred_val, y_val).mean().item()
     writer.add_scalar("mse_val", mse_val, epoch)
 
-    if epoch % 10 == 0:
+    if epoch % log_fig_freq == 0:
         n_samples = 50
         # plot results with all ground truth
         y_all_pred = (
@@ -151,7 +160,9 @@ def train_1d_regression():
         n_epochs=50,
         log_dir=log_dir,
         evaluate_func=eval_1d_regression,
-        evaluate_data=(x_train, y_train, x_val, y_val, x_all, y_all),
+        evaluate_data=(x_train, y_train, x_val, y_val, x_all, y_all, 20),
+        model_noise_var=0.1,
+        M=70,
     )
 
 

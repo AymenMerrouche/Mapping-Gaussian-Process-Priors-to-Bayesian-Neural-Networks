@@ -16,39 +16,48 @@ from train_inference import train, eval_1d_regression
 
 
 def objective(trial: optuna.Trial):
-    dim_h = 512
-    prior_sigma_1 = trial.suggest_float("prior_sigma_1", low=1e-3, high=10.0, log=True)
-    prior_sigma_2 = trial.suggest_float("prior_sigma_2", low=1e-3, high=10.0, log=True)
-    prior_pi = trial.suggest_float("prior_pi", low=0.0, high=1.0)
+    dim_h = 20
+    activation = "rbf"
+    sigma_model = 0.1
+    num_samples = 70
+    sigma_prior = trial.suggest_float("prior_sigma", low=1e-3, high=10.0, log=True)
+    # M = trial.suggest_int("M", low=1, high=200, log=True)
+    M = 70
+    model_noise_var = trial.suggest_float(
+        "model_noise_var", low=0.01, high=1.0, log=True
+    )
 
     log_dir = (
         project_dir
-        / f"runs/{trial.study.study_name}/trial_{trial.number}-dim_h_{dim_h}-"
-        f"s1_{prior_sigma_1:.2f}-s2_{prior_sigma_2:.2f}-pi_{prior_pi:.2f}"
+        / f"runs/{trial.study.study_name}/trial_{trial.number}-dim_h_{dim_h}-act_{activation}-"
+        f"sigma_{sigma_prior:.2f}"
     )
 
-    x_train, y_train, x_val, y_val, x_all, y_all = get_toy_data()
+    x_train, y_train, x_val, y_val, x_all, y_all = get_toy_data(
+        num_samples=num_samples, sigma=sigma_model
+    )
     dataloader_train = DataLoader(
-        TensorDataset(x_train, y_train), batch_size=16, shuffle=True
+        TensorDataset(x_train, y_train), batch_size=num_samples, shuffle=True
     )
 
     model = BayesianMLP(
         dim_in=1,
         dim_out=1,
         dim_h=dim_h,
-        prior_sigma_1=prior_sigma_1,
-        prior_sigma_2=prior_sigma_2,
-        prior_pi=prior_pi,
+        prior_sigma=sigma_prior,
+        activation=activation,
     )
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.1)
     return train(
         model,
         optimizer,
         dataloader_train,
-        n_epochs=500,
+        n_epochs=150,
         log_dir=log_dir,
         evaluate_func=eval_1d_regression,
-        evaluate_data=(x_train, y_train, x_val, y_val, x_all, y_all),
+        evaluate_data=(x_train, y_train, x_val, y_val, x_all, y_all, 50),
+        model_noise_var=model_noise_var,
+        M=M,
     )
 
 
@@ -56,7 +65,11 @@ def make_hyper_param_study():
     if args.study == "":
         # create study
         study_name = f"study_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        study = optuna.create_study(direction="minimize", study_name=study_name)
+        study = optuna.create_study(
+            direction="minimize",
+            study_name=study_name,
+            # sampler=optuna.samplers.RandomSampler(),
+        )
         # save source files
         os.makedirs(project_dir / f"runs/{study_name}/", exist_ok=True)
         for f in glob.iglob(str(project_dir) + "/src/*.py"):
@@ -70,8 +83,9 @@ def make_hyper_param_study():
     joblib.dump(study, project_dir / f"runs/{study_name}/study.pkl")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     project_dir = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser()
     parser.add_argument("--study", type=str, help="resume existing study", default="")
     args = parser.parse_args()
+    make_hyper_param_study()
