@@ -20,17 +20,21 @@ def objective(trial: optuna.Trial):
     activation = "rbf"
     sigma_model = 0.1
     num_samples = 70
-    sigma_prior = trial.suggest_float("prior_sigma", low=1e-3, high=10.0, log=True)
+    # sigma_prior = trial.suggest_float("prior_sigma", low=1e-3, high=10.0, log=True)
     # M = trial.suggest_int("M", low=1, high=200, log=True)
-    M = 70
-    model_noise_var = trial.suggest_float(
-        "model_noise_var", low=0.01, high=1.0, log=True
-    )
+    model_noise_var = 1.0
+    prior_sigma_1 = trial.suggest_float("prior_sigma_1", low=1e-3, high=10.0, log=True)
+    prior_sigma_2 = 1.0
+    # prior_sigma_2 = trial.suggest_float("prior_sigma_2", low=1e-3, high=10.0, log=True)
+    prior_pi = 1.0
+    # prior_pi = trial.suggest_float("prior_pi", low=0.0, high=1.0)
+    posterior_rho_var = trial.suggest_float("posterior_rho_var", low=0.5, high=12.0)
 
     log_dir = (
         project_dir
         / f"runs/{trial.study.study_name}/trial_{trial.number}-dim_h_{dim_h}-act_{activation}-"
-        f"sigma_{sigma_prior:.2f}"
+        # f"sigma_{sigma_prior:.2f}"
+        f"s1_{prior_sigma_1:.2f}-s2_{prior_sigma_2:.2f}-pi_{prior_pi:.2f}"
     )
 
     x_train, y_train, x_val, y_val, x_all, y_all = get_toy_data(
@@ -44,7 +48,12 @@ def objective(trial: optuna.Trial):
         dim_in=1,
         dim_out=1,
         dim_h=dim_h,
-        prior_sigma=sigma_prior,
+        prior_type="mixture",
+        # prior_sigma=prior_sigma,
+        prior_pi=prior_pi,
+        prior_sigma_1=prior_sigma_1,
+        prior_sigma_2=prior_sigma_2,
+        posterior_rho_var=posterior_rho_var,
         activation=activation,
     )
     optimizer = torch.optim.Adam(model.parameters(), lr=0.1)
@@ -57,7 +66,7 @@ def objective(trial: optuna.Trial):
         evaluate_func=eval_1d_regression,
         evaluate_data=(x_train, y_train, x_val, y_val, x_all, y_all, 50),
         model_noise_var=model_noise_var,
-        M=M,
+        M=70,
     )
 
 

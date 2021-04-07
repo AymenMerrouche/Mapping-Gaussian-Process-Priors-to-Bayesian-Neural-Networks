@@ -1,6 +1,6 @@
 import torch
+from blitz.modules import TrainableRandomDistribution, PriorWeightDistribution
 
-# from blitz.modules import BayesianLinear
 from torch import nn
 from torch.distributions import Normal, Categorical, MixtureSameFamily
 import torch.nn.functional as F
@@ -42,9 +42,12 @@ class BayesianLinear(nn.Module):
         # Prior
         self.prior = Normal(0, prior_sigma)
         # Gaussian mixture prior (like Bayes By Backprop paper)
+        # implementation below is un-tested, for this prior, try BayesianLinearBlitz
         # mix = Categorical(torch.Tensor([prior_pi, 1 - prior_pi]))
         # comp = Normal(torch.zeros(2), torch.Tensor([prior_sigma_1, prior_sigma_2]))
         # self.prior = MixtureSameFamily(mix, comp)
+
+        # todo: add prior that can be optimized to match GP
 
         self.log_variational_posterior = 0.0
         self.log_prior = 0.0
@@ -64,6 +67,71 @@ class BayesianLinear(nn.Module):
             variational_posterior_bias.log_prob(b)
         ).sum()
         self.log_prior = self.prior.log_prob(w).sum() + self.prior.log_prob(b).sum()
+        return F.linear(x, w, b)
+
+
+class BayesianLinearBlitz(nn.Module):
+    def __init__(
+        self,
+        dim_in: int,
+        dim_out: int,
+        prior_sigma_1: float,
+        prior_sigma_2: float,
+        prior_pi: float,
+        # posterior_mu_init=0,
+        # posterior_rho_init=-7.0,
+        posterior_rho_var: float,
+    ):
+        """
+        Identical to blitz BayesianLinear modules
+
+        Args:
+            dim_in:
+            dim_out:
+            prior_sigma_1:
+            prior_sigma_2:
+            prior_pi:
+            posterior_rho_var:
+        """
+        super().__init__()
+        # Variational weight parameters and sample
+        self.weight_mu = nn.Parameter(torch.Tensor(dim_out, dim_in).normal_(0.0, 1.0))
+        self.weight_rho = nn.Parameter(
+            torch.Tensor(dim_out, dim_in).normal_(0.0, posterior_rho_var)
+        )
+        self.weight_sampler = TrainableRandomDistribution(
+            self.weight_mu, self.weight_rho
+        )
+
+        # Variational bias parameters and sample
+        self.bias_mu = nn.Parameter(torch.Tensor(dim_out).normal_(0.0, 1.0))
+        self.bias_rho = nn.Parameter(
+            torch.Tensor(dim_out).normal_(1.0, posterior_rho_var)
+        )
+        self.bias_sampler = TrainableRandomDistribution(self.bias_mu, self.bias_rho)
+
+        # Priors (as BBP paper)
+        self.weight_prior_dist = PriorWeightDistribution(
+            prior_pi, prior_sigma_1, prior_sigma_2
+        )
+        self.bias_prior_dist = PriorWeightDistribution(
+            prior_pi, prior_sigma_1, prior_sigma_2
+        )
+        self.log_prior = 0
+        self.log_variational_posterior = 0
+
+    def forward(self, x):
+        # Sample the weights and forward it
+        w = self.weight_sampler.sample()
+        b = self.bias_sampler.sample()
+
+        # Get the log prob
+        self.log_variational_posterior = self.weight_sampler.log_posterior(
+            w
+        ) + self.bias_sampler.log_posterior(b)
+        self.log_prior = self.weight_prior_dist.log_prior(
+            w
+        ) + self.bias_prior_dist.log_prior(b)
         return F.linear(x, w, b)
 
 
@@ -124,13 +192,25 @@ class VariationalEstimator(nn.Module):
         """
         kl_divergence = 0
         for module in self.modules():
-            if isinstance(module, BayesianLinear):
+            if hasattr(module, "log_variational_posterior"):
                 kl_divergence += module.log_variational_posterior - module.log_prior
         return kl_divergence
 
 
 class BayesianMLP(VariationalEstimator):
-    def __init__(self, dim_in, dim_out, dim_h, prior_sigma, activation):
+    def __init__(
+        self,
+        dim_in: int,
+        dim_out: int,
+        dim_h: int,
+        activation: str,
+        prior_type: str,
+        prior_sigma: float = None,
+        prior_sigma_1: float = None,
+        prior_sigma_2: float = None,
+        prior_pi: float = None,
+        posterior_rho_var: float = None,
+    ):
         super().__init__()
         if activation == "rbf":
             activation_fct = RBF()
@@ -139,41 +219,55 @@ class BayesianMLP(VariationalEstimator):
         else:
             raise ValueError
 
-        # parameters to use with Blitz layers
-        # prior_sigma1 = 1.0
-        # prior_sigma2 = 1.0
-        # prior_pi = 0.5
-        self.model = nn.Sequential(
-            BayesianLinear(
-                dim_in,
-                dim_h,
-                prior_sigma=prior_sigma,
-                # prior_sigma_1=prior_sigma1,
-                # prior_sigma_2=prior_sigma2,
-                # prior_pi=prior_pi,
-                # posterior_rho_init=-1,
-            ),
-            activation_fct,
-            BayesianLinear(
-                dim_h,
-                dim_h,
-                prior_sigma=prior_sigma,
-                # prior_sigma_1=prior_sigma1,
-                # prior_sigma_2=prior_sigma2,
-                # prior_pi=prior_pi,
-                # posterior_rho_init=-1,
-            ),
-            activation_fct,
-            BayesianLinear(
-                dim_h,
-                dim_out,
-                prior_sigma=prior_sigma,
-                # prior_sigma_1=prior_sigma1,
-                # prior_sigma_2=prior_sigma2,
-                # prior_pi=prior_pi,
-                # posterior_rho_init=-1,
-            ),
-        )
+        if prior_type == "normal":
+            self.model = nn.Sequential(
+                BayesianLinear(
+                    dim_in,
+                    dim_h,
+                    prior_sigma=prior_sigma,
+                ),
+                activation_fct,
+                BayesianLinear(
+                    dim_h,
+                    dim_h,
+                    prior_sigma=prior_sigma,
+                ),
+                activation_fct,
+                BayesianLinear(
+                    dim_h,
+                    dim_out,
+                    prior_sigma=prior_sigma,
+                ),
+            )
+        elif prior_type == "mixture":
+            self.model = nn.Sequential(
+                BayesianLinearBlitz(
+                    dim_in,
+                    dim_h,
+                    prior_sigma_1=prior_sigma_1,
+                    prior_sigma_2=prior_sigma_2,
+                    prior_pi=prior_pi,
+                    posterior_rho_var=posterior_rho_var,
+                ),
+                activation_fct,
+                BayesianLinearBlitz(
+                    dim_h,
+                    dim_h,
+                    prior_sigma_1=prior_sigma_1,
+                    prior_sigma_2=prior_sigma_2,
+                    prior_pi=prior_pi,
+                    posterior_rho_var=posterior_rho_var,
+                ),
+                activation_fct,
+                BayesianLinearBlitz(
+                    dim_h,
+                    dim_out,
+                    prior_sigma_1=prior_sigma_1,
+                    prior_sigma_2=prior_sigma_2,
+                    prior_pi=prior_pi,
+                    posterior_rho_var=posterior_rho_var,
+                ),
+            )
 
     def forward(self, x, num_samples=1):
         if num_samples == 1:

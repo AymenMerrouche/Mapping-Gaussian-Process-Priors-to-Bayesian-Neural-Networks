@@ -66,8 +66,12 @@ def train(
 
             global_step += 1
             loss_history.append(loss.item())
-            kl_div_history.append(kl_div.item())
-            log_p_history.append(log_p.item())
+            if isinstance(kl_div, float):
+                kl_div_history.append(kl_div)
+                log_p_history.append(log_p)
+            else:
+                kl_div_history.append(kl_div.item())
+                log_p_history.append(log_p.item())
 
         with torch.no_grad():
             val_metric = evaluate_func(
@@ -80,7 +84,7 @@ def train(
                 epoch,
             )
         early_stopping(val_metric, model)
-        if early_stopping.early_stop:
+        if early_stopping.early_stop or val_metric is None:
             break
     return val_metric
 
@@ -149,7 +153,11 @@ def train_1d_regression():
         dim_in=1,
         dim_out=1,
         dim_h=dim_h,
-        prior_sigma=prior_sigma,
+        prior_type="mixture",
+        # prior_sigma=prior_sigma,
+        prior_pi=0.97,
+        prior_sigma_1=8.1,
+        prior_sigma_2=9.91,
         activation=activation,
     )
     optimizer = torch.optim.Adam(model.parameters(), lr=0.1)
