@@ -1,0 +1,7 @@
+epochs : 50
+no_tensorboard : True
+dim : 10
+num_classes : 5
+num_examples : 100
+sample : True
+experiment : False

@@ -18,11 +18,10 @@ pal_col = {
     "gp": sns.light_palette("#2ecc71", n_colors=n),
 }  # nice green eh not so nice
 
-project_dir = Path(__file__).resolve().parents[1]
-
+project_dir = "../figures/"
 
 def plot_deciles(
-    x_all, y_all_pred, y_all_ground_truth=None, x_train=None, y_train=None
+    x_all, y_all_pred, y_all_ground_truth=None, x_train=None, y_train=None, mode="bnn", title=""
 ):
     """
     Takes numpy arrays of 1D data, with optionally ground truth data and training samples.
@@ -38,7 +37,7 @@ def plot_deciles(
         figure
 
     """
-    color = colors["bnn"]
+    color = colors[mode]
 
     mean = np.mean(y_all_pred, axis=1)
     std = np.std(y_all_pred, axis=1)
@@ -56,15 +55,13 @@ def plot_deciles(
         ax.plot(x_train, y_train, "ko", ms=4, label="Training data")
         # plot ground truth
         ax.plot(x_all, y_all_ground_truth, "k", lw=1, label="Ground truth")
-
     # plot samples
-    ax.plot(x_all, y_all_pred[:, :5], sns.xkcd_rgb[sample_col["bnn"]], lw=1)
-
+    ax.plot(x_all, y_all_pred[:, :5], sns.xkcd_rgb[sample_col[mode]], lw=1)
     # plot mean of samples
     ax.plot(x_all, mean, sns.xkcd_rgb[color[0]], lw=1, label="Prediction mean")
 
     # plot the deciles
-    pal = pal_col["bnn"]
+    pal = pal_col[mode]
     for z, col in zip(zs, pal):
         ax.fill_between(x_all, mean - z * std, mean + z * std, color=col)
     ax.tick_params(labelleft="off", labelbottom="off")
@@ -72,5 +69,13 @@ def plot_deciles(
     # ax.set_xlim([-8, 8])
 
     plt.legend()
-    # plt.savefig(project_dir / f"figures/{title}-deciles.pdf", bbox_inches="tight")
+    plt.savefig(project_dir + title + "-deciles.pdf", bbox_inches="tight")
     return fig
+
+def plot_prior(sampling_points, predictions, title):
+    fig = plt.figure(facecolor="white", figsize=(10, 5))
+    ax = fig.add_subplot(111)
+    ax.plot(sampling_points, predictions[:, :5], sns.xkcd_rgb[sample_col["gpp"]], lw=1)
+    plt.savefig(project_dir + title + "-prior.pdf", bbox_inches="tight")
+    return fig
+
