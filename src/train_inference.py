@@ -83,9 +83,9 @@ def train(
                 log_p_history,
                 epoch,
             )
-        early_stopping(val_metric, model)
-        if early_stopping.early_stop or val_metric is None:
-            break
+        # early_stopping(val_metric, model)
+        # if early_stopping.early_stop or val_metric is None:
+        #     break
     return val_metric
 
 
@@ -132,9 +132,10 @@ def eval_1d_regression(
 
 
 def train_1d_regression():
-    dim_h = 20
+    dim_h = 512
+    n_layers = 2
     prior_sigma = 1.0
-    activation = "rbf"
+    activation = "relu"
 
     log_dir = (
         project_dir
@@ -153,11 +154,13 @@ def train_1d_regression():
         dim_in=1,
         dim_out=1,
         dim_h=dim_h,
+        n_layers=n_layers,
         prior_type="mixture",
         # prior_sigma=prior_sigma,
-        prior_pi=0.97,
-        prior_sigma_1=8.1,
-        prior_sigma_2=9.91,
+        prior_pi=prior_pi,
+        prior_sigma_1=prior_sigma_1,
+        prior_sigma_2=prior_sigma_2,
+        posterior_rho_init=posterior_rho_init,
         activation=activation,
     )
     optimizer = torch.optim.Adam(model.parameters(), lr=0.1)
@@ -165,11 +168,11 @@ def train_1d_regression():
         model,
         optimizer,
         dataloader_train,
-        n_epochs=50,
+        n_epochs=500,
         log_dir=log_dir,
         evaluate_func=eval_1d_regression,
         evaluate_data=(x_train, y_train, x_val, y_val, x_all, y_all, 20),
-        model_noise_var=0.1,
+        model_noise_var=1.,
         M=70,
     )
 

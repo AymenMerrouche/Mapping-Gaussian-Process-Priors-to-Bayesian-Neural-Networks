@@ -16,25 +16,27 @@ from train_inference import train, eval_1d_regression
 
 
 def objective(trial: optuna.Trial):
-    dim_h = 20
+    dim_h = 512
+    n_layers = 1
     activation = "rbf"
     sigma_model = 0.1
     num_samples = 70
     # sigma_prior = trial.suggest_float("prior_sigma", low=1e-3, high=10.0, log=True)
     # M = trial.suggest_int("M", low=1, high=200, log=True)
     model_noise_var = 1.0
-    prior_sigma_1 = trial.suggest_float("prior_sigma_1", low=1e-3, high=10.0, log=True)
-    prior_sigma_2 = 1.0
-    # prior_sigma_2 = trial.suggest_float("prior_sigma_2", low=1e-3, high=10.0, log=True)
-    prior_pi = 1.0
-    # prior_pi = trial.suggest_float("prior_pi", low=0.0, high=1.0)
-    posterior_rho_var = trial.suggest_float("posterior_rho_var", low=0.5, high=12.0)
+    prior_sigma_1 = trial.suggest_float("prior_sigma_1", low=1.0, high=20.0, log=True)
+    # prior_sigma_2 = 1.0
+    prior_sigma_2 = trial.suggest_float("prior_sigma_2", low=1e-3, high=1., log=True)
+    # prior_pi = 1.0
+    prior_pi = trial.suggest_float("prior_pi", low=0.0, high=1.0)
+    posterior_rho_init = trial.suggest_float("posterior_rho_init", low=-5.0, high=-1.0)
+    # posterior_rho_init = -2.
 
     log_dir = (
         project_dir
-        / f"runs/{trial.study.study_name}/trial_{trial.number}-dim_h_{dim_h}-act_{activation}-"
+        / f"runs/{trial.study.study_name}/trial_{trial.number}-dim_h_{dim_h}-n_layers_{n_layers}-act_{activation}-"
         # f"sigma_{sigma_prior:.2f}"
-        f"s1_{prior_sigma_1:.2f}-s2_{prior_sigma_2:.2f}-pi_{prior_pi:.2f}"
+        f"s1_{prior_sigma_1:.2f}-s2_{prior_sigma_2:.2f}-pi_{prior_pi:.2f}-scale_{posterior_rho_init}"
     )
 
     x_train, y_train, x_val, y_val, x_all, y_all = get_toy_data(
@@ -48,12 +50,13 @@ def objective(trial: optuna.Trial):
         dim_in=1,
         dim_out=1,
         dim_h=dim_h,
+        n_layers=n_layers,
         prior_type="mixture",
         # prior_sigma=prior_sigma,
         prior_pi=prior_pi,
         prior_sigma_1=prior_sigma_1,
         prior_sigma_2=prior_sigma_2,
-        posterior_rho_var=posterior_rho_var,
+        posterior_rho_init=posterior_rho_init,
         activation=activation,
     )
     optimizer = torch.optim.Adam(model.parameters(), lr=0.1)
@@ -66,7 +69,7 @@ def objective(trial: optuna.Trial):
         evaluate_func=eval_1d_regression,
         evaluate_data=(x_train, y_train, x_val, y_val, x_all, y_all, 50),
         model_noise_var=model_noise_var,
-        M=70,
+        M=1,
     )
 
 
@@ -77,7 +80,7 @@ def make_hyper_param_study():
         study = optuna.create_study(
             direction="minimize",
             study_name=study_name,
-            # sampler=optuna.samplers.RandomSampler(),
+            sampler=optuna.samplers.RandomSampler(),
         )
         # save source files
         os.makedirs(project_dir / f"runs/{study_name}/", exist_ok=True)
