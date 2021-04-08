@@ -2,7 +2,6 @@ import torch
 from blitz.modules import (
     TrainableRandomDistribution,
     PriorWeightDistribution,
-    BayesianLinear,
 )
 
 from torch import nn
@@ -15,17 +14,22 @@ class RBF(nn.Module):
         return torch.exp(-(x ** 2))
 
 
-class BayesianLinear2(nn.Module):
+class Nothing(nn.Module):
+    def forward(self, x):
+        return x
+
+
+class BayesianLinear(nn.Module):
     def __init__(
         self,
         dim_in: int,
         dim_out: int,
+        posterior_rho_init: float,
         prior_type: str,
         prior_sigma: float = None,
         prior_pi: float = None,
         prior_sigma_1: float = None,
         prior_sigma_2: float = None,
-        posterior_rho_init: float = None,
     ):
         """
         Assume a gaussian prior w_i ~ Normal(0, prior_sigma), with w_i iid
@@ -58,7 +62,12 @@ class BayesianLinear2(nn.Module):
         self.log_variational_posterior = 0.0
         self.log_prior = 0.0
 
-    def forward(self, x):
+    def forward(self, x, sample_from_prior: bool):
+        if sample_from_prior:
+            w = self.prior.sample(self.mu.shape)
+            b = self.prior.sample(self.mu_bias.shape)
+            return F.linear(x, w, b)
+
         # Sample the weights and forward it
         # perform all operations in the forward rather than in __init__ (including log[1+exp(rho)])
         variational_posterior = Normal(self.mu, torch.log1p(torch.exp(self.rho)))
@@ -213,27 +222,32 @@ class BayesianMLP(VariationalEstimator):
         dim_h: int,
         n_layers: int,
         activation: str,
+        posterior_rho_init: float,
         prior_type: str,
         prior_sigma: float = None,
         prior_sigma_1: float = None,
         prior_sigma_2: float = None,
         prior_pi: float = None,
-        posterior_rho_init: float = None,
     ):
         super().__init__()
         if activation == "rbf":
-            activation_fct = RBF()
+            self.activation_fct = RBF()
         elif activation == "relu":
-            activation_fct = nn.ReLU()
+            self.activation_fct = nn.ReLU()
+        elif activation == "nothing":
+            self.activation_fct = Nothing()
+        elif activation == "softplus":
+            self.activation_fct = nn.Softplus()
         else:
             raise ValueError
 
         if prior_type == "normal":
 
             def bayesian_layer(dim_1, dim_2):
-                return BayesianLinear2(
+                return BayesianLinear(
                     dim_1,
                     dim_2,
+                    posterior_rho_init=posterior_rho_init,
                     prior_type=prior_type,
                     prior_sigma=prior_sigma,
                 )
@@ -241,33 +255,34 @@ class BayesianMLP(VariationalEstimator):
         elif prior_type == "mixture":
 
             def bayesian_layer(dim_1, dim_2):
-                return BayesianLinear2(
+                return BayesianLinear(
                     dim_1,
                     dim_2,
+                    posterior_rho_init=posterior_rho_init,
                     prior_type=prior_type,
                     prior_sigma_1=prior_sigma_1,
                     prior_sigma_2=prior_sigma_2,
                     prior_pi=prior_pi,
-                    posterior_rho_init=posterior_rho_init,
                 )
 
         else:
             raise ValueError
 
         h_sizes = [dim_in] + n_layers * [dim_h]
-        layers = []
+        self.layers = nn.ModuleList()
         for i in range(len(h_sizes) - 1):
-            layers += [
+            self.layers += [
                 bayesian_layer(h_sizes[i], h_sizes[i + 1]),
-                activation_fct,
             ]
-        layers += [bayesian_layer(h_sizes[-1], dim_out)]
-        self.model = nn.Sequential(*layers)
+        self.layers += [bayesian_layer(h_sizes[-1], dim_out)]
 
-    def forward(self, x, num_samples=1):
+    def forward(self, x, num_samples=1, sample_from_prior=False):
         if num_samples == 1:
             # return a single prediction
-            return self.model(x)
+            for layer in self.layers[:-1]:
+                x = self.activation_fct(layer(x, sample_from_prior=sample_from_prior))
+            x = self.layers[-1](x, sample_from_prior=sample_from_prior)
+            return x
 
         else:
             # make num_samples predictions with different weights

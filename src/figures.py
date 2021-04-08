@@ -3,7 +3,11 @@ from pathlib import Path
 import seaborn as sns
 import numpy as np
 import matplotlib.pyplot as plt
+import torch
 from scipy.stats import norm
+from torch.nn.functional import mse_loss
+
+from models import BayesianMLP
 
 sns.set_style("white")
 n = 9
@@ -74,3 +78,44 @@ def plot_deciles(
     plt.legend()
     # plt.savefig(project_dir / f"figures/{title}-deciles.pdf", bbox_inches="tight")
     return fig
+
+
+def plot_prior(model, x_all, n_samples=50, writer=None):
+    # plot results with all ground truth
+    y_all_pred = (
+        torch.stack(
+            [model(x_all, sample_from_prior=True).view(-1) for _ in range(n_samples)],
+            dim=1,
+        )
+        .detach()
+        .numpy()
+    )
+    fig = plot_deciles(
+        x_all.view(-1).detach().numpy(),
+        y_all_pred,
+    )
+    if writer is not None:
+        writer.add_figure("prior", fig, 0)
+    else:
+        plt.plot()
+
+
+def plot_posterior(model, x_all, y_all, x_train, y_train, n_samples=50):
+    y_pred_train, _ = model(x_train, num_samples=30)
+    mse_train = mse_loss(y_pred_train, y_train).mean().item()
+    print(f"MSE (train - mean of 30 BNN samples): {mse_train}")
+
+    # plot results with all ground truth
+    y_all_pred = (
+        torch.stack([model(x_all).view(-1) for _ in range(n_samples)], dim=1)
+        .detach()
+        .numpy()
+    )
+    fig = plot_deciles(
+        x_all.view(-1).detach().numpy(),
+        y_all_pred,
+        y_all.view(-1).detach().numpy(),
+        x_train.view(-1).detach().numpy(),
+        y_train.view(-1).detach().numpy(),
+    )
+    plt.plot()
