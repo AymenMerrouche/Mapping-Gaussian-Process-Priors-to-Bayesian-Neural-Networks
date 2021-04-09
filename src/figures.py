@@ -79,3 +79,56 @@ def plot_prior(sampling_points, predictions, title):
     plt.savefig(project_dir + title + "-prior.pdf", bbox_inches="tight")
     return fig
 
+def plot_priors(sampling_points, gpp, bnnp, bnnop, title):
+    to_plot = {"gp":gpp, "gpp":bnnop,"bnn":bnnp}
+    x_all = sampling_points
+    fig = plt.figure(facecolor="white", figsize=(10, 5))
+    for i,mode in enumerate(to_plot):
+        y_all_pred = to_plot[mode]
+        
+        color = colors[mode]
+
+        mean = np.mean(y_all_pred, axis=1)
+        std = np.std(y_all_pred, axis=1)
+
+        ax = fig.add_subplot(310+(i+1))
+        ax.set_title(mode)
+
+        # Get critical values for the deciles
+        lvls = 0.1 * np.linspace(1, 9, 9)
+        alphas = 1 - 0.5 * lvls
+        zs = norm.ppf(alphas)
+
+        # plot samples
+        ax.plot(x_all, y_all_pred[:, :5], sns.xkcd_rgb[sample_col[mode]], lw=1)
+        # plot mean of samples
+        ax.plot(x_all, mean, sns.xkcd_rgb[color[0]], lw=1, label="Prediction mean")
+
+        # plot the deciles
+        pal = pal_col[mode]
+        for z, col in zip(zs, pal):
+            ax.fill_between(x_all, mean - z * std, mean + z * std, color=col)
+        ax.tick_params(labelleft="off", labelbottom="off")
+        # ax.set_ylim([-2, 3])
+        # ax.set_xlim([-8, 8])
+
+        plt.legend()
+        plt.savefig(project_dir + title + "-prior.pdf", bbox_inches="tight")
+        plt.suptitle(title)
+    fig.tight_layout()
+    return fig
+        
+    """     
+    fig = plt.figure(facecolor="white", figsize=(20, 10))
+    ax = fig.add_subplot(311)
+    ax.set_title("GPP")
+    ax.plot(sampling_points, gpp[:, :5], sns.xkcd_rgb[sample_col["gpp"]], lw=1)
+    ax = fig.add_subplot(312)
+    ax.plot(sampling_points, bnnop[:, :5], sns.xkcd_rgb[sample_col["gpp"]], lw=1)
+    ax.set_title("BNN w optimized prior")
+    ax = fig.add_subplot(313)
+    ax.plot(sampling_points, bnnp[:, :5], sns.xkcd_rgb[sample_col["gpp"]], lw=1)
+    ax.set_title("BNN")
+    plt.savefig(project_dir + title + "-prior.pdf", bbox_inches="tight")
+    plt.suptitle(title)
+    return fig"""

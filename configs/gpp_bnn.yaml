@@ -1,0 +1,6 @@
+epochs : 100
+no_tensorboard : True
+num_examples : 100
+sample : True
+experiment : True
+verbose : False

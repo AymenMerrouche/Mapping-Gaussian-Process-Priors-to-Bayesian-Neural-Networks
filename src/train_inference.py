@@ -82,7 +82,7 @@ def train(
         early_stopping(val_metric, model)
         if early_stopping.early_stop:
             break
-    return val_metric
+    return val_metric, model
 
 
 # --- 1D regression

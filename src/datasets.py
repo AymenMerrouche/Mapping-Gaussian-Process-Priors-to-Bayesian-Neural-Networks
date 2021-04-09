@@ -101,7 +101,7 @@ def get_1D_data_from_func(num_samples=100, sigma=0.05, f = periodic):
         x_train, y_train, x_val, y_val, x_all, y_all
     """
 
-    x_all = np.linspace(-4, 6, 300).reshape((-1, 1))
+    x_all = np.linspace(-10, 10, 300).reshape((-1, 1))
     y_all = f(x_all)
 
     # training
@@ -121,7 +121,6 @@ def get_1D_data_from_func(num_samples=100, sigma=0.05, f = periodic):
 
 function_dict = {
     "exponential" : exponential,
-    "periodic" : periodic,
     "periodic_linear" : periodic_linear
 }
 
