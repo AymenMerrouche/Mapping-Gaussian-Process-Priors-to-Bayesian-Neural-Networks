@@ -22,27 +22,26 @@ pal_col = {
     "gp": sns.light_palette("#2ecc71", n_colors=n),
 }  # nice green eh not so nice
 
-project_dir = Path(__file__).resolve().parents[1]
+project_dir = "../figures/"
 
 
 def plot_deciles(
-    x_all, y_all_pred, y_all_ground_truth=None, x_train=None, y_train=None
+    x_all, y_all_pred, y_all_ground_truth=None, x_train=None, y_train=None, mode="bnn", title=None
 ):
     """
     Takes numpy arrays of 1D data, with optionally ground truth data and training samples.
-
     Args:
         x_all: (n,)
         y_all_pred: (n, N_samples): BNN predictions from the N_samples models
         y_all_ground_truth: (n,), optional
         x_train: (n_train), optional
         y_train: (n_train), optional
-
+        mode: different color codes to use
+        title: title of figure if saved
     Returns:
         figure
-
     """
-    color = colors["bnn"]
+    color = colors[mode]
 
     mean = np.mean(y_all_pred, axis=1)
     std = np.std(y_all_pred, axis=1)
@@ -62,13 +61,13 @@ def plot_deciles(
         ax.plot(x_all, y_all_ground_truth, "k", lw=1, label="Ground truth")
 
     # plot samples
-    ax.plot(x_all, y_all_pred[:, :5], sns.xkcd_rgb[sample_col["bnn"]], lw=1)
+    ax.plot(x_all, y_all_pred[:, :5], sns.xkcd_rgb[sample_col[mode]], lw=1)
 
     # plot mean of samples
     ax.plot(x_all, mean, sns.xkcd_rgb[color[0]], lw=1, label="Prediction mean")
 
     # plot the deciles
-    pal = pal_col["bnn"]
+    pal = pal_col[mode]
     for z, col in zip(zs, pal):
         ax.fill_between(x_all, mean - z * std, mean + z * std, color=col)
     ax.tick_params(labelleft="off", labelbottom="off")
@@ -76,7 +75,8 @@ def plot_deciles(
     # ax.set_xlim([-8, 8])
 
     plt.legend()
-    # plt.savefig(project_dir / f"figures/{title}-deciles.pdf", bbox_inches="tight")
+    if title is not None:
+        plt.savefig(project_dir + title + "_deciles.png", bbox_inches="tight")
     return fig
 
 
@@ -119,3 +119,55 @@ def plot_posterior(model, x_all, y_all, x_train, y_train, n_samples=50):
         y_train.view(-1).detach().numpy(),
     )
     plt.plot()
+
+def plot_prior_no_deciles(sampling_points, predictions, title):
+    """
+    Plots prior without deciles
+    """
+    fig = plt.figure(facecolor="white", figsize=(10, 5))
+    ax = fig.add_subplot(111)
+    ax.plot(sampling_points, predictions[:, :5], sns.xkcd_rgb[sample_col["gpp"]], lw=1)
+    plt.savefig(project_dir + title + "-prior.png", bbox_inches="tight")
+    return fig
+
+def plot_priors(sampling_points, gpp, bnnp, bnnop, title):
+    """
+    Plot priors of three different models
+    """
+    to_plot = {"gp":gpp, "gpp":bnnop,"bnn":bnnp}
+    x_all = sampling_points
+    fig = plt.figure(facecolor="white", figsize=(10, 5))
+    for i,mode in enumerate(to_plot):
+        y_all_pred = to_plot[mode]
+        
+        color = colors[mode]
+
+        mean = np.mean(y_all_pred, axis=1)
+        std = np.std(y_all_pred, axis=1)
+
+        ax = fig.add_subplot(310+(i+1))
+        ax.set_title(mode)
+
+        # Get critical values for the deciles
+        lvls = 0.1 * np.linspace(1, 9, 9)
+        alphas = 1 - 0.5 * lvls
+        zs = norm.ppf(alphas)
+
+        # plot samples
+        ax.plot(x_all, y_all_pred[:, :5], sns.xkcd_rgb[sample_col[mode]], lw=1)
+        # plot mean of samples
+        ax.plot(x_all, mean, sns.xkcd_rgb[color[0]], lw=1, label="Prediction mean")
+
+        # plot the deciles
+        pal = pal_col[mode]
+        for z, col in zip(zs, pal):
+            ax.fill_between(x_all, mean - z * std, mean + z * std, color=col)
+        ax.tick_params(labelleft="off", labelbottom="off")
+        # ax.set_ylim([-2, 3])
+        # ax.set_xlim([-8, 8])
+
+        plt.legend()
+        plt.savefig(project_dir + title + "-prior.png", bbox_inches="tight")
+        plt.suptitle(title)
+    fig.tight_layout()
+    return fig
