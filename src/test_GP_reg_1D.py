@@ -107,7 +107,7 @@ def fit(model, likelihood, optimizer, criterion ,train_x, train_y, val_x, val_y,
     
     
     
-if __name__ == "__main__":
+def main_GP_1D():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = torch.device("cpu")
 
@@ -163,7 +163,8 @@ if __name__ == "__main__":
             x_train, y_train, x_val, y_val, x_all, y_all = x_train.cpu().numpy(), y_train.cpu().numpy(), x_val.cpu().numpy(),\
             y_val.cpu().numpy(), x_all.cpu().numpy(), y_all.cpu().numpy()
             title = "regression results on "+func
-            plot_deciles(x_all, y_all_pred, y_all, x_train, y_train, mode="gp", title=title)
+            fig = plot_deciles(x_all, y_all_pred, y_all, x_train, y_train, mode="gp", title=title)
+            fig.show()
     if gp_reg_args["sample"] == True :
         # get some sampling points
         sampling_points = torch.linspace(-10, 10, 1000)
@@ -187,6 +188,7 @@ if __name__ == "__main__":
             # draw from priors
             # title of the plot
             title = "prior with kernel = "+kernel
-            plot_prior(sampling_points, y, title=title)
+            fig = plot_prior_no_deciles(sampling_points, y, title=title)
+            fig.show()
         
         

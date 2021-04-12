@@ -9,7 +9,7 @@ from torch.utils.data import TensorDataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 from datasets import get_toy_data
-from figures import plot_deciles
+from figures import plot_deciles, plot_prior
 from models import BayesianMLP, VariationalEstimator
 from utils import EarlyStopping
 
@@ -19,14 +19,13 @@ def train(
     optimizer: torch.optim.Optimizer,
     dataloader_train,
     n_epochs: int,
-    log_dir: str,
     evaluate_func,
     evaluate_data,
     M: int,
     model_noise_var: float,
+    log_dir: str = None,
 ):
     """
-
     Args:
         model:
         optimizer:
@@ -38,11 +37,11 @@ def train(
         evaluate_data:
         M: inverse of the cost in front of the KL div (in theory, number of batches)
         model_noise_var: acts as a L2 penalty in the log likelihood term (in the case of regression & MSE)
-
     Returns:
-
     """
-    writer = SummaryWriter(str(log_dir))
+    if log_dir is not None:
+        writer = SummaryWriter(str(log_dir))
+        plot_prior(model, x_all=evaluate_data[4], writer=writer)
     global_step = 0
     early_stopping = EarlyStopping(patience=30)
     for epoch in range(n_epochs):
@@ -66,23 +65,31 @@ def train(
 
             global_step += 1
             loss_history.append(loss.item())
-            kl_div_history.append(kl_div.item())
-            log_p_history.append(log_p.item())
+            if isinstance(kl_div, float):
+                kl_div_history.append(kl_div)
+                log_p_history.append(log_p)
+            else:
+                kl_div_history.append(kl_div.item())
+                log_p_history.append(log_p.item())
 
-        with torch.no_grad():
-            val_metric = evaluate_func(
-                model,
-                evaluate_data,
-                writer,
-                loss_history,
-                kl_div_history,
-                log_p_history,
-                epoch,
-            )
-        early_stopping(val_metric, model)
-        if early_stopping.early_stop:
-            break
-    return val_metric, model
+        if log_dir is not None:
+            with torch.no_grad():
+                val_metric = evaluate_func(
+                    model,
+                    evaluate_data,
+                    writer,
+                    loss_history,
+                    kl_div_history,
+                    log_p_history,
+                    epoch,
+                )
+            # early_stopping(val_metric, model)
+            # if early_stopping.early_stop or val_metric is None:
+            #     break
+    if log_dir is None:
+        return model
+    else:
+        return val_metric
 
 
 # --- 1D regression
@@ -129,13 +136,13 @@ def eval_1d_regression(
 
 def train_1d_regression():
     dim_h = 20
-    prior_sigma = 1.0
+    n_layers = 2
     activation = "rbf"
 
     log_dir = (
         project_dir
         / f"runs/individual/{datetime.now().strftime('%Y%m%d_%H%M%S')}-act_{activation}"
-        f"-dim_h_{dim_h}-sigma_{prior_sigma:.2f}"
+        f"-dim_h_{dim_h}"
     )
 
     x_train, y_train, x_val, y_val, x_all, y_all = get_toy_data(
@@ -149,7 +156,13 @@ def train_1d_regression():
         dim_in=1,
         dim_out=1,
         dim_h=dim_h,
-        prior_sigma=prior_sigma,
+        n_layers=n_layers,
+        prior_type="mixture",
+        # prior_sigma=prior_sigma,
+        prior_pi=0.5,
+        prior_sigma_1=9.0,
+        prior_sigma_2=0.01,
+        posterior_rho_init=-3.0,
         activation=activation,
     )
     optimizer = torch.optim.Adam(model.parameters(), lr=0.1)
@@ -157,11 +170,11 @@ def train_1d_regression():
         model,
         optimizer,
         dataloader_train,
-        n_epochs=50,
+        n_epochs=250,
         log_dir=log_dir,
         evaluate_func=eval_1d_regression,
         evaluate_data=(x_train, y_train, x_val, y_val, x_all, y_all, 20),
-        model_noise_var=0.1,
+        model_noise_var=1.0,
         M=70,
     )
 

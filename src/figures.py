@@ -20,22 +20,22 @@ pal_col = {
 
 project_dir = "../figures/"
 
+
 def plot_deciles(
-    x_all, y_all_pred, y_all_ground_truth=None, x_train=None, y_train=None, mode="bnn", title=""
+    x_all, y_all_pred, y_all_ground_truth=None, x_train=None, y_train=None, mode="bnn", title=None
 ):
     """
     Takes numpy arrays of 1D data, with optionally ground truth data and training samples.
-
     Args:
         x_all: (n,)
         y_all_pred: (n, N_samples): BNN predictions from the N_samples models
         y_all_ground_truth: (n,), optional
         x_train: (n_train), optional
         y_train: (n_train), optional
-
+        mode: different color codes to use
+        title: title of figure if saved
     Returns:
         figure
-
     """
     color = colors[mode]
 
@@ -55,8 +55,10 @@ def plot_deciles(
         ax.plot(x_train, y_train, "ko", ms=4, label="Training data")
         # plot ground truth
         ax.plot(x_all, y_all_ground_truth, "k", lw=1, label="Ground truth")
+
     # plot samples
     ax.plot(x_all, y_all_pred[:, :5], sns.xkcd_rgb[sample_col[mode]], lw=1)
+
     # plot mean of samples
     ax.plot(x_all, mean, sns.xkcd_rgb[color[0]], lw=1, label="Prediction mean")
 
@@ -69,10 +71,55 @@ def plot_deciles(
     # ax.set_xlim([-8, 8])
 
     plt.legend()
-    plt.savefig(project_dir + title + "-deciles.pdf", bbox_inches="tight")
+    if title is not None:
+        plt.savefig(project_dir + title + "_deciles.pdf", bbox_inches="tight")
     return fig
 
-def plot_prior(sampling_points, predictions, title):
+
+def plot_prior(model, x_all, n_samples=50, writer=None):
+    # plot results with all ground truth
+    y_all_pred = (
+        torch.stack(
+            [model(x_all, sample_from_prior=True).view(-1) for _ in range(n_samples)],
+            dim=1,
+        )
+        .detach()
+        .numpy()
+    )
+    fig = plot_deciles(
+        x_all.view(-1).detach().numpy(),
+        y_all_pred,
+    )
+    if writer is not None:
+        writer.add_figure("prior", fig, 0)
+    else:
+        plt.plot()
+
+
+def plot_posterior(model, x_all, y_all, x_train, y_train, n_samples=50):
+    y_pred_train, _ = model(x_train, num_samples=30)
+    mse_train = mse_loss(y_pred_train, y_train).mean().item()
+    print(f"MSE (train - mean of 30 BNN samples): {mse_train}")
+
+    # plot results with all ground truth
+    y_all_pred = (
+        torch.stack([model(x_all).view(-1) for _ in range(n_samples)], dim=1)
+        .detach()
+        .numpy()
+    )
+    fig = plot_deciles(
+        x_all.view(-1).detach().numpy(),
+        y_all_pred,
+        y_all.view(-1).detach().numpy(),
+        x_train.view(-1).detach().numpy(),
+        y_train.view(-1).detach().numpy(),
+    )
+    plt.plot()
+
+def plot_prior_no_deciles(sampling_points, predictions, title):
+    """
+    Plots prior without deciles
+    """
     fig = plt.figure(facecolor="white", figsize=(10, 5))
     ax = fig.add_subplot(111)
     ax.plot(sampling_points, predictions[:, :5], sns.xkcd_rgb[sample_col["gpp"]], lw=1)
@@ -80,6 +127,9 @@ def plot_prior(sampling_points, predictions, title):
     return fig
 
 def plot_priors(sampling_points, gpp, bnnp, bnnop, title):
+    """
+    Plot priors of three different models
+    """
     to_plot = {"gp":gpp, "gpp":bnnop,"bnn":bnnp}
     x_all = sampling_points
     fig = plt.figure(facecolor="white", figsize=(10, 5))
@@ -117,18 +167,3 @@ def plot_priors(sampling_points, gpp, bnnp, bnnop, title):
         plt.suptitle(title)
     fig.tight_layout()
     return fig
-        
-    """     
-    fig = plt.figure(facecolor="white", figsize=(20, 10))
-    ax = fig.add_subplot(311)
-    ax.set_title("GPP")
-    ax.plot(sampling_points, gpp[:, :5], sns.xkcd_rgb[sample_col["gpp"]], lw=1)
-    ax = fig.add_subplot(312)
-    ax.plot(sampling_points, bnnop[:, :5], sns.xkcd_rgb[sample_col["gpp"]], lw=1)
-    ax.set_title("BNN w optimized prior")
-    ax = fig.add_subplot(313)
-    ax.plot(sampling_points, bnnp[:, :5], sns.xkcd_rgb[sample_col["gpp"]], lw=1)
-    ax.set_title("BNN")
-    plt.savefig(project_dir + title + "-prior.pdf", bbox_inches="tight")
-    plt.suptitle(title)
-    return fig"""

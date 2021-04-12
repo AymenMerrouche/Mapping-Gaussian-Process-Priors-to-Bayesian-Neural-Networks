@@ -217,20 +217,3 @@ class BayesianMLP(VariationalEstimator):
     def copy_optimised_priors(self):
         self.model[0].copy_otpimized_prior()
         self.model[2].copy_otpimized_prior()
-        
-        
-
-
-class RegularMLP(nn.Module):
-    def __init__(self, dim_in, dim_out, dim_h):
-        super().__init__()
-        self.model = nn.Sequential(
-            nn.Linear(dim_in, dim_h),
-            nn.ReLU(),
-            nn.Linear(dim_h, dim_out),
-        )
-
-    def forward(self, x, num_samples=1):
-        if num_samples == 1:
-            # return a single prediction
-            return self.model(x)
